@@ -60,7 +60,7 @@
 
 - (void) applicationDidBecomeActive:(NSNotification *) notification {
     if (FBSDKSettings.isAutoLogAppEventsEnabled) {
-        [FBSDKAppEvents activateApp];
+        [[FBSDKAppEvents shared] activateApp];
     }
     if (self.applicationWasActivated == NO) {
         self.applicationWasActivated = YES;
@@ -95,6 +95,24 @@
     [self returnGenericSuccess:command.callbackId];
 }
 
+- (void)getClientToken:(CDVInvokedUrlCommand *)command {
+    NSString *clientToken = FBSDKSettings.clientToken;
+    CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:clientToken];
+    [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
+}
+
+- (void)setClientToken:(CDVInvokedUrlCommand *)command {
+    if ([command.arguments count] == 0) {
+        // Not enough arguments
+        [self returnInvalidArgsError:command.callbackId];
+        return;
+    }
+    
+    NSString *clientToken = [command argumentAtIndex:0];
+    [FBSDKSettings setClientToken:clientToken];
+    [self returnGenericSuccess:command.callbackId];
+}
+
 - (void)getApplicationName:(CDVInvokedUrlCommand *)command {
     NSString *displayName = FBSDKSettings.displayName;
     CDVPluginResult* pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:displayName];
@@ -121,7 +139,7 @@
     
     BOOL force = [[command argumentAtIndex:0] boolValue];
     if (force) {
-        [FBSDKAccessToken refreshCurrentAccessToken:^(FBSDKGraphRequestConnection *connection, id result, NSError *error) {
+        [FBSDKAccessToken refreshCurrentAccessTokenWithCompletion:^(id<FBSDKGraphRequestConnecting>  _Nullable connection, id  _Nullable result, NSError * _Nullable error) {
             CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
                                                           messageAsDictionary:[self loginResponseObject]];
             [self.commandDelegate sendPluginResult:pluginResult callbackId:command.callbackId];
@@ -291,7 +309,7 @@
 
     // this will prevent from being unable to login after updating plugin or changing permissions
     // without refreshing there will be a cache problem. This simple call should fix the problems
-    [FBSDKAccessToken refreshCurrentAccessToken:nil];
+    [FBSDKAccessToken refreshCurrentAccessTokenWithCompletion:nil];
 
     FBSDKLoginManagerLoginResultBlock loginHandler = ^void(FBSDKLoginManagerLoginResult *result, NSError *error) {
         if (error) {
@@ -511,8 +529,8 @@
     } else if ([method isEqualToString:@"share"] || [method isEqualToString:@"feed"]) {
         // Create native params
         self.dialogCallbackId = command.callbackId;
-        FBSDKShareDialog *dialog = [[FBSDKShareDialog alloc] init];
-        dialog.fromViewController = [self topMostController];
+        // Use FBSDKSharingContent instead;
+        FBSDKShareLinkContent *content;
         if (params[@"photo_image"]) {
         	FBSDKSharePhoto *photo = [[FBSDKSharePhoto alloc] init];
         	NSString *photoImage = params[@"photo_image"];
@@ -527,16 +545,15 @@
         			photo.userGenerated = YES;
         		}
         	}
-        	FBSDKSharePhotoContent *content = [[FBSDKSharePhotoContent alloc] init];
-        	content.photos = @[photo];
-        	dialog.shareContent = content;
+        	content = [[FBSDKSharePhotoContent alloc] init];
+        	//content.photos = @[photo]; Uncomment me
         } else {
-        	FBSDKShareLinkContent *content = [[FBSDKShareLinkContent alloc] init];
+        	content = [[FBSDKShareLinkContent alloc] init];
         	content.contentURL = [NSURL URLWithString:params[@"href"]];
         	content.hashtag = [FBSDKHashtag hashtagWithString:[params objectForKey:@"hashtag"]];
         	content.quote = params[@"quote"];
-        	dialog.shareContent = content;
         }
+        FBSDKShareDialog *dialog = [[FBSDKShareDialog alloc] initWithViewController:(UIViewController *) [self topMostController] content:(id<FBSDKSharingContent>) content delegate:( id<FBSDKSharingDelegate>) self];
         dialog.delegate = self;
         // Adopt native share sheets with the following line
         if (params[@"share_sheet"]) {
@@ -652,7 +669,7 @@
     permissions = [requestPermissions copy];
 
     // Defines block that handles the Graph API response
-    FBSDKGraphRequestBlock graphHandler = ^(FBSDKGraphRequestConnection *connection, id result, NSError *error) {
+    FBSDKGraphRequestCompletion graphHandler = ^(id<FBSDKGraphRequestConnecting> connection, id result, NSError *error) {
         CDVPluginResult* pluginResult;
         if (error) {
             NSString *message = error.userInfo[FBSDKErrorLocalizedDescriptionKey] ?: @"There was an error making the graph call.";
@@ -672,7 +689,7 @@
 
     // If we have permissions to request
     if ([permissions count] == 0){
-        [request startWithCompletionHandler:graphHandler];
+        [request startWithCompletion:graphHandler];
         return;
     }
 
@@ -706,7 +723,7 @@
             return;
         }
 
-        [request startWithCompletionHandler:graphHandler];
+        [request startWithCompletion:graphHandler];
     }];
 }
 
@@ -732,7 +749,7 @@
 
 - (void) activateApp:(CDVInvokedUrlCommand *)command
 {
-    [FBSDKAppEvents activateApp];
+    [[FBSDKAppEvents shared] activateApp];
     [self returnGenericSuccess:command.callbackId];
 }
 
